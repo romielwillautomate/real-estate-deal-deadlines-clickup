@@ -1,0 +1,2133 @@
+{
+  "name": "Real Estate Deal Deadline Tracker: ClickUp",
+  "nodes": [
+    {
+      "id": "b4b18b56-12ed-5020-be4a-8657ebd09825",
+      "name": "Note: Check Request",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -80,
+        -120
+      ],
+      "parameters": {
+        "content": "## 1. Check the request\nThe CRM posts deals to two webhooks. A shared secret header is required, and the body is checked before ClickUp is touched. Bad requests get a clear 401 or 400.",
+        "width": 1180,
+        "height": 760,
+        "color": 3
+      }
+    },
+    {
+      "id": "c6071879-f227-5e03-aa1b-e8420fdb289b",
+      "name": "Note: Find Deal",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1160,
+        -120
+      ],
+      "parameters": {
+        "content": "## 2. Find the deal and plan\nClickUp is the record. The deal task and its subtasks carry a Deal ID field, so a repeated webhook finds them instead of making copies. Deadlines are worked out here.",
+        "width": 1180,
+        "height": 960,
+        "color": 5
+      }
+    },
+    {
+      "id": "c093ad3b-59fe-5b48-ad6b-5aed241e2088",
+      "name": "Note: Write Tasks",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2400,
+        -120
+      ],
+      "parameters": {
+        "content": "## 3. Write to ClickUp, one call at a time\nCreates the deal task, then creates or moves each milestone subtask. One call per loop pass, so a retry only repeats the call that failed.",
+        "width": 1440,
+        "height": 900,
+        "color": 4
+      }
+    },
+    {
+      "id": "6f25458a-d038-5224-a470-8a0e39484814",
+      "name": "Note: Answer",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3900,
+        -120
+      ],
+      "parameters": {
+        "content": "## 4. Log and answer\nAmendments get a comment on the deal task that says what moved. The sender gets a JSON summary, and any failure raises an alert through the error workflow.",
+        "width": 1620,
+        "height": 760,
+        "color": 6
+      }
+    },
+    {
+      "id": "a4fd6e7e-b1c9-5baa-b468-c6269b0b3c17",
+      "name": "Webhook: Under Contract",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        100
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "deal-under-contract",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "a678ce03-daf7-5bf5-b785-7325c178b6bf"
+    },
+    {
+      "id": "3dd5c25d-9200-5c86-a4b1-6c567e7cc6df",
+      "name": "Webhook: Amendment",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        320
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "deal-amendment",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "b2994907-fe83-5e56-aae3-5405c85feac5"
+    },
+    {
+      "id": "7cadd063-e1d7-5aff-bd01-9cc152382bc6",
+      "name": "Secret Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        240,
+        200
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "39bbc0fe-ca71-590f-8c40-0cdc20fae4e1",
+              "leftValue": "={{ $env.WEBHOOK_SECRET }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "51f97740-aae2-569d-b15a-963165722601",
+              "leftValue": "={{ $json.headers['x-webhook-secret'] }}",
+              "rightValue": "={{ $env.WEBHOOK_SECRET }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "170faf46-9a22-5097-8f8a-8deb21fdf15f",
+      "name": "Respond: Unauthorized",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        460
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: false, error: \"unauthorized\" }) }}",
+        "options": {
+          "responseCode": 401
+        }
+      }
+    },
+    {
+      "id": "0ba75b07-8df2-57da-986f-a13a0f4149f2",
+      "name": "Stop: Bad Secret",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        480,
+        460
+      ],
+      "parameters": {
+        "errorMessage": "Deal webhook rejected: the X-Webhook-Secret header is missing or wrong (or WEBHOOK_SECRET is not set). If real deals land here, check the secret in your CRM."
+      }
+    },
+    {
+      "id": "0884b0f8-9c35-568f-9574-af97b1548ca2",
+      "name": "Validate Deal",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        200
+      ],
+      "parameters": {
+        "jsCode": "// Checks the request and the workflow settings before anything touches ClickUp.\n// Dates are calendar dates (YYYY-MM-DD) in the business time zone (TIMEZONE).\nconst TZ = $env.TIMEZONE || 'America/New_York';\nconst event = $('Webhook: Amendment').isExecuted ? 'amendment' : 'under_contract';\nconst raw = $json.body;\nconst body = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};\nconst errors = [];\nconst config = [];\nconst warnings = [];\n\nconst isDate = (v) => typeof v === 'string' && /^\\d{4}-\\d{2}-\\d{2}$/.test(v) && DateTime.fromISO(v, { zone: TZ }).isValid;\nconst isEmail = (v) => typeof v === 'string' && /^[^\\s@<>]+@[^\\s@<>]+\\.[^\\s@<>]+$/.test(v.trim());\nconst text = (v, max) => (typeof v === 'string' && v.trim() && v.trim().length <= max ? v.trim().replace(/\\s+/g, ' ') : '');\nconst PRIORITY = { urgent: 1, high: 2, normal: 3, low: 4 };\nconst STANDARD = { inspection: 'inspection_days', appraisal: 'appraisal_days', financing: 'financing_days' };\n\nfunction days(value, label, min) {\n  if (value === undefined || value === null || value === '') return null;\n  const n = typeof value === 'string' && /^\\s*\\d+\\s*$/.test(value) ? Number(value) : value;\n  if (!Number.isInteger(n) || n < min || n > 365) {\n    errors.push(`${label} must be a whole number from ${min} to 365`);\n    return null;\n  }\n  return n;\n}\n\nfunction customMilestones(list) {\n  if (list === undefined || list === null) return [];\n  if (!Array.isArray(list)) { errors.push('custom_milestones must be a list'); return []; }\n  if (list.length > 20) { errors.push('custom_milestones can have at most 20 entries'); return []; }\n  const seen = new Set();\n  const out = [];\n  list.forEach((m, i) => {\n    const name = text(m && m.name, 100);\n    if (!name) { errors.push(`custom_milestones[${i}].name is required (up to 100 characters)`); return; }\n    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');\n    if (!slug) { errors.push(`custom_milestones[${i}].name needs at least one letter or number`); return; }\n    const key = 'custom:' + slug;\n    if (seen.has(key)) { errors.push(`custom_milestones[${i}].name \"${name}\" is listed twice`); return; }\n    seen.add(key);\n    const d = days(m.days, `custom_milestones[${i}].days`, 0);\n    if (d === null) { if (m.days === undefined || m.days === null || m.days === '') errors.push(`custom_milestones[${i}].days is required`); return; }\n    let priority = 3;\n    if (m.priority !== undefined && m.priority !== null && m.priority !== '') {\n      priority = PRIORITY[String(m.priority).trim().toLowerCase()];\n      if (!priority) { errors.push(`custom_milestones[${i}].priority must be urgent, high, normal or low`); return; }\n    }\n    out.push({ key, name, days: d, priority });\n  });\n  return out;\n}\n\n// Settings\nconst required = {\n  CLICKUP_API_TOKEN: $env.CLICKUP_API_TOKEN,\n  CLICKUP_LIST_ID: $env.CLICKUP_LIST_ID,\n  CLICKUP_DEAL_ID_FIELD_ID: $env.CLICKUP_DEAL_ID_FIELD_ID,\n  CLICKUP_MILESTONE_FIELD_ID: $env.CLICKUP_MILESTONE_FIELD_ID,\n};\nfor (const [name, value] of Object.entries(required)) if (!value) config.push(`${name} is not set`);\nif (!DateTime.now().setZone(TZ).isValid) config.push(`TIMEZONE \"${TZ}\" is not a valid IANA time zone, for example America/Chicago`);\nconst dueTime = $env.DEADLINE_TIME || '17:00';\nif (!/^([01]\\d|2[0-3]):[0-5]\\d$/.test(dueTime)) config.push(`DEADLINE_TIME \"${dueTime}\" must be a 24 hour time like 17:00`);\nString($env.HOLIDAYS || '').split(',').map((s) => s.trim()).filter(Boolean)\n  .forEach((h) => { if (!isDate(h)) config.push(`HOLIDAYS entry \"${h}\" is not a YYYY-MM-DD date`); });\nlet team = [];\ntry {\n  team = JSON.parse($env.TEAM_MEMBERS || '[]');\n  if (!Array.isArray(team) || team.some((m) => !m || !isEmail(m.email) || !Number.isInteger(Number(m.clickup_id)))) throw new Error('bad');\n} catch (e) {\n  config.push('TEAM_MEMBERS must be a JSON list of people, each with an email and a numeric clickup_id');\n  team = [];\n}\nconst findMember = (email) => team.find((m) => String(m.email).trim().toLowerCase() === String(email || '').trim().toLowerCase());\n\n// Request\nconst dealId = (typeof body.deal_id === 'string' || typeof body.deal_id === 'number') ? String(body.deal_id).trim() : '';\nif (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(dealId)) errors.push('deal_id is required: letters, numbers, dots, dashes or underscores, up to 64 characters');\nlet roll = null;\nif (body.roll_to_business_day !== undefined) {\n  if (typeof body.roll_to_business_day !== 'boolean') errors.push('roll_to_business_day must be true or false');\n  else roll = body.roll_to_business_day;\n}\nconst periods = {};\nlet request;\n\nif (event === 'under_contract') {\n  const address = text(body.property_address, 200);\n  if (!address) errors.push('property_address is required (up to 200 characters)');\n  const side = String(body.side || '').trim().toLowerCase();\n  if (!['buyer', 'seller', 'dual'].includes(side)) errors.push('side must be buyer, seller or dual');\n  if (!isDate(body.contract_date)) errors.push('contract_date must be a real date in YYYY-MM-DD format');\n  if (!isDate(body.closing_date)) errors.push('closing_date must be a real date in YYYY-MM-DD format');\n  else if (isDate(body.contract_date) && body.closing_date <= body.contract_date) errors.push('closing_date must be after contract_date');\n  for (const [key, field] of Object.entries(STANDARD)) periods[key] = days(body[field], field, 0);\n  const custom = customMilestones(body.custom_milestones);\n  if (!isEmail(body.agent_email)) errors.push('agent_email is required');\n\n  // Agent and transaction coordinator come from TEAM_MEMBERS, so the CRM never needs ClickUp user IDs.\n  const agent = findMember(body.agent_email);\n  const tcEmail = isEmail(body.tc_email) ? body.tc_email : ($env.TC_EMAIL || '');\n  const tc = tcEmail ? findMember(tcEmail) : null;\n  if (tcEmail && !tc) config.push(`The transaction coordinator ${tcEmail} is not in TEAM_MEMBERS`);\n  if (isEmail(body.agent_email) && !agent) warnings.push(`Agent ${String(body.agent_email).trim()} is not in TEAM_MEMBERS, so the tasks are assigned to the transaction coordinator only`);\n  const assignees = [...new Set([agent, tc].filter(Boolean).map((m) => Number(m.clickup_id)))];\n  if (!assignees.length) warnings.push('Nobody could be assigned: add the agent to TEAM_MEMBERS or set TC_EMAIL');\n  request = {\n    address, side, contractDate: body.contract_date, closingDate: body.closing_date, periods, custom, roll,\n    agentName: agent ? agent.name || agent.email : String(body.agent_email || '').trim(),\n    tcName: tc ? tc.name || tc.email : '', assignees,\n  };\n} else {\n  if (body.contract_date !== undefined) errors.push('contract_date cannot be changed by an amendment. Every deadline counts from it, so delete the deal task in ClickUp and send the under contract webhook again');\n  let closingDate = null;\n  if (body.new_closing_date !== undefined) {\n    if (!isDate(body.new_closing_date)) errors.push('new_closing_date must be a real date in YYYY-MM-DD format');\n    else closingDate = body.new_closing_date;\n  }\n  // Amendments carry the new total period, not the difference, so a repeated delivery changes nothing.\n  for (const [key, field] of Object.entries(STANDARD)) periods[key] = days(body[field], field, 1);\n  const custom = customMilestones(body.custom_milestones);\n  const changes = (closingDate ? 1 : 0) + Object.values(periods).filter((v) => v !== null).length + custom.length;\n  if (!changes && !errors.length) errors.push('Nothing to change: send new_closing_date, inspection_days, appraisal_days, financing_days or custom_milestones');\n  const amendmentId = body.amendment_id === undefined ? '' : text(String(body.amendment_id), 64);\n  if (body.amendment_id !== undefined && !amendmentId) errors.push('amendment_id must be up to 64 characters');\n  const note = body.note === undefined ? '' : text(body.note, 500);\n  if (body.note !== undefined && !note) errors.push('note must be text up to 500 characters');\n  request = { closingDate, periods, custom, roll, amendmentId, note };\n}\n\nconst ok = errors.length === 0 && config.length === 0;\nreturn [{\n  json: {\n    ok,\n    event,\n    dealId,\n    httpStatus: config.length ? 500 : 400,\n    errors: config.length ? config.map((c) => 'Workflow setting: ' + c) : errors,\n    warnings,\n    request: ok ? request : null,\n  },\n}];\n"
+      }
+    },
+    {
+      "id": "3d1be64c-6048-5027-9047-6dbc0971da8e",
+      "name": "Payload Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        720,
+        200
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "966c3787-3eb9-5ebc-9a4d-038ffcaab1fe",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "89295c31-8943-5d16-ab62-1162d1992c55",
+      "name": "Respond: Rejected",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        720,
+        460
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: false, deal_id: $json.dealId || null, errors: $json.errors }) }}",
+        "options": {
+          "responseCode": "={{ $json.httpStatus }}"
+        }
+      }
+    },
+    {
+      "id": "24ce64ee-e95a-5932-8969-0ca9ae22f495",
+      "name": "Stop: Invalid Request",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        960,
+        460
+      ],
+      "parameters": {
+        "errorMessage": "={{ 'Deal webhook rejected (' + $json.event + ', deal ' + ($json.dealId || 'unknown') + '): ' + $json.errors.join('; ') }}"
+      }
+    },
+    {
+      "id": "ab11bb90-ebaf-53e0-a9b4-895b1f60dfd2",
+      "name": "ClickUp: Find Deal",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1240,
+        200
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.clickup.com/api/v2/list/{{ $env.CLICKUP_LIST_ID }}/task",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ $env.CLICKUP_API_TOKEN }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "custom_fields",
+              "value": "={{ JSON.stringify([{ field_id: $env.CLICKUP_DEAL_ID_FIELD_ID, operator: '==', value: $json.dealId }]) }}"
+            },
+            {
+              "name": "subtasks",
+              "value": "true"
+            },
+            {
+              "name": "include_closed",
+              "value": "true"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000,
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "page",
+                    "value": "={{ $pageCount }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ $response.body.last_page !== false }}",
+              "limitPagesFetched": true,
+              "maxRequests": 50
+            }
+          }
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "353f31a8-baa0-5e81-a3db-2b76b7f985c3",
+      "name": "Respond: ClickUp Down",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1240,
+        460
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: false, deal_id: $('Validate Deal').first().json.dealId, error: 'ClickUp did not answer. Nothing was changed. Please retry later.' }) }}",
+        "options": {
+          "responseCode": 502
+        }
+      }
+    },
+    {
+      "id": "e4f61233-6d81-5733-b42b-0e8b3ba26ec5",
+      "name": "Stop: ClickUp Failed",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        1480,
+        460
+      ],
+      "parameters": {
+        "errorMessage": "={{ 'Could not look up deal ' + $('Validate Deal').first().json.dealId + ' in ClickUp after 3 tries: ' + ($json.error?.message || 'unknown error') + '. Nothing was changed; the sender got a 502 and can retry.' }}"
+      }
+    },
+    {
+      "id": "c6f9bd2d-b486-578b-89fd-bc5a292f9a82",
+      "name": "Plan Changes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1480,
+        200
+      ],
+      "parameters": {
+        "jsCode": "// Works out every deadline and compares it with what ClickUp already holds for this deal.\n// ClickUp is the record: the deal task and each milestone subtask carry the Deal ID custom field,\n// and each subtask carries its Milestone key, so a repeated webhook finds them instead of duplicating them.\nconst v = $('Validate Deal').first().json;\nconst r = v.request;\nconst TZ = $env.TIMEZONE || 'America/New_York';\nconst DUE_TIME = $env.DEADLINE_TIME || '17:00';\nconst ROLL_DEFAULT = String($env.ROLL_TO_BUSINESS_DAY || 'true').trim().toLowerCase() !== 'false';\nconst HOLIDAYS = new Set(String($env.HOLIDAYS || '').split(',').map((s) => s.trim()).filter(Boolean));\nconst DEAL_FIELD = $env.CLICKUP_DEAL_ID_FIELD_ID;\nconst KEY_FIELD = $env.CLICKUP_MILESTONE_FIELD_ID;\nconst roll = r.roll === null ? ROLL_DEFAULT : r.roll;\nconst NAMES = { inspection: 'Inspection contingency ends', appraisal: 'Appraisal contingency ends', financing: 'Financing contingency ends', closing: 'Closing' };\nconst ORDER = ['inspection', 'appraisal', 'financing'];\n\nconst day = (iso) => DateTime.fromISO(iso, { zone: TZ }).startOf('day');\nconst short = (d) => d.toFormat('ccc LLL d, yyyy');\nconst stamp = (ms) => DateTime.fromMillis(Number(ms), { zone: TZ }).toFormat('ccc LLL d, yyyy h:mm a ZZZZ');\nconst md = (s) => String(s).replace(/([\\\\`*_\\[\\]<>|#])/g, '\\\\$1');\nconst isBusinessDay = (d) => d.weekday <= 5 && !HOLIDAYS.has(d.toISODate());\n\n// Calendar days from the base date. A deadline on a weekend or holiday moves to the next business day.\nfunction deadline(base, add) {\n  const target = base.plus({ days: add });\n  let date = target;\n  if (roll) while (!isBusinessDay(date)) date = date.plus({ days: 1 });\n  const due = DateTime.fromISO(`${date.toISODate()}T${DUE_TIME}`, { zone: TZ });\n  const moved = date.toISODate() !== target.toISODate();\n  return {\n    date: date.toISODate(),\n    dueMs: due.toMillis(),\n    dueIso: due.toISO({ suppressMilliseconds: true }),\n    dueLabel: stamp(due.toMillis()),\n    rolledFrom: moved ? target.toISODate() : null,\n    rollNote: moved ? `${short(target)} is a ${target.weekday > 5 ? 'weekend day' : 'holiday'}, so the deadline moves to the next business day.` : '',\n  };\n}\n\nconst describe = (m, dealLine, extra) => [`**Deal:** ${dealLine}`, `**Deadline:** ${m.dueLabel}`, `**Rule:** ${m.rule}`, m.rollNote, extra]\n  .filter(Boolean).join('\\n\\n');\n\nconst fieldValue = (t, id) => {\n  const f = (t.custom_fields || []).find((x) => x.id === id);\n  return f && f.value !== undefined && f.value !== null ? String(f.value) : '';\n};\n// One item per page of results. Reading every page matters: a missed page would look like missing milestones.\nconst all = $input.all().flatMap((i) => (Array.isArray(i.json.tasks) ? i.json.tasks : []));\nconst mine = all.filter((t) => fieldValue(t, DEAL_FIELD) === v.dealId);\nconst parents = mine.filter((t) => !t.parent).sort((a, b) => Number(a.date_created) - Number(b.date_created));\nconst parent = parents[0] || null;\nconst warnings = [...v.warnings];\nif (parents.length > 1) warnings.push(`${parents.length} deal tasks in ClickUp carry deal ID ${v.dealId}. The oldest one (${parent.id}) is used; please delete the others.`);\nconst existing = {};\nif (parent) {\n  for (const t of mine) {\n    const k = fieldValue(t, KEY_FIELD);\n    if (t.parent === parent.id && k && !existing[k]) existing[k] = t;\n  }\n}\nconst parentInfo = parent ? { id: parent.id, name: parent.name, url: parent.url } : null;\nconst createBody = (m, dealLine, assignees) => ({\n  name: m.name,\n  markdown_content: describe(m, dealLine),\n  assignees,\n  priority: m.priority,\n  due_date: m.dueMs,\n  due_date_time: true,\n  custom_fields: [{ id: DEAL_FIELD, value: v.dealId }, { id: KEY_FIELD, value: m.key }],\n});\nconst afterClosing = (list, closingMs) => list.filter((m) => m.key !== 'closing' && m.dueMs > closingMs)\n  .map((m) => `${m.name} (${m.dueLabel}) is after closing (${stamp(closingMs)}). Check the contract.`);\n// The deal task's start date holds the contract date (set at local noon, so a shift of a few hours keeps the date).\nconst storedContract = parent && parent.start_date ? DateTime.fromMillis(Number(parent.start_date), { zone: TZ }).startOf('day') : null;\nconst reject = (status, httpStatus, errorMessage, extra) => ({\n  route: 'reject', status, httpStatus, errorMessage,\n  response: { ok: false, status, deal_id: v.dealId, ...(parentInfo ? { task_id: parentInfo.id, task_url: parentInfo.url } : {}), error: errorMessage, ...extra },\n});\n\nlet out;\nif (v.event === 'under_contract' && storedContract && storedContract.toISODate() !== r.contractDate) {\n  // Every deadline counts from the contract date. Mixing two contract dates in one deal would leave some\n  // deadlines wrong without anyone noticing, so nothing is written and the run raises an alert.\n  out = reject('conflict', 409,\n    `Deal ${v.dealId} is already in ClickUp with contract date ${storedContract.toISODate()}, but this request says ${r.contractDate}. `\n    + 'Nothing was changed. If the contract date really changed, delete the deal task and its subtasks in ClickUp and send the webhook again.');\n} else if (v.event === 'under_contract') {\n  const contract = day(r.contractDate);\n  const ms = [];\n  ORDER.forEach((k) => {\n    const n = r.periods[k];\n    if (n) ms.push({ key: k, name: NAMES[k], priority: 2, ...deadline(contract, n), rule: `Contract date (${short(contract)}) + ${n} days` });\n  });\n  r.custom.forEach((c) => ms.push({ key: c.key, name: c.name, priority: c.priority, ...deadline(contract, c.days), rule: `Contract date (${short(contract)}) + ${c.days} days` }));\n  const closing = { key: 'closing', name: NAMES.closing, priority: 1, ...deadline(day(r.closingDate), 0), rule: `Closing date in the contract (${short(day(r.closingDate))})` };\n  ms.push(closing);\n  ms.sort((a, b) => a.dueMs - b.dueMs);\n  warnings.push(...afterClosing(ms, closing.dueMs));\n\n  const dealLine = `${v.dealId}, ${md(r.address)}`;\n  const ops = ms.filter((m) => !existing[m.key]).map((m) => ({\n    op: 'create', key: m.key, name: m.name, dueMs: m.dueMs, dueLabel: m.dueLabel, body: createBody(m, dealLine, r.assignees),\n  }));\n  const differ = ms.filter((m) => existing[m.key] && Number(existing[m.key].due_date) !== m.dueMs).map((m) => m.name);\n  if (parent && differ.length) warnings.push(`This deal was already in ClickUp. These dates differ from the existing tasks and were not changed: ${differ.join(', ')}. Send an amendment to change them.`);\n  const side = { buyer: 'Buyer side', seller: 'Seller side', dual: 'Both sides (dual agency)' }[r.side];\n  const contractNoon = DateTime.fromISO(`${r.contractDate}T12:00`, { zone: TZ }).toMillis();\n  const parentBody = {\n    name: r.address,\n    markdown_content: [\n      `- **Deal ID:** ${v.dealId}`,\n      `- **Side:** ${side}`,\n      `- **Agent:** ${md(r.agentName)}`,\n      ...(r.tcName ? [`- **Transaction coordinator:** ${md(r.tcName)}`] : []),\n      `- **Contract date:** ${short(contract)}`,\n      `- **Closing:** ${closing.dueLabel}`,\n    ].join('\\n') + '\\n\\nEach deadline is a subtask of this task. Amendments move them and leave a comment here.\\n\\n'\n      + 'The start date of this task holds the contract date that amendments count from, so please leave it as it is.',\n    assignees: r.assignees,\n    start_date: contractNoon,\n    start_date_time: false,\n    due_date: closing.dueMs,\n    due_date_time: true,\n    custom_fields: [{ id: DEAL_FIELD, value: v.dealId }],\n  };\n  const milestones = ms.map((m) => ({\n    key: m.key, name: m.name, due: m.dueIso, due_label: m.dueLabel, rolled_from: m.rolledFrom,\n    task_id: existing[m.key] ? existing[m.key].id : null, task_url: existing[m.key] ? existing[m.key].url : null,\n  }));\n  const route = !parent ? 'create_parent' : ops.length ? 'write' : 'unchanged';\n  out = {\n    route, status: { create_parent: 'created', write: 'repaired', unchanged: 'unchanged' }[route],\n    parent: parentInfo, parentBody: parent ? null : parentBody, ops, milestones, warnings,\n  };\n  if (route === 'unchanged') {\n    out.httpStatus = 200;\n    out.response = {\n      ok: true, status: 'unchanged', deal_id: v.dealId, task_id: parent.id, task_url: parent.url, milestones, warnings,\n      message: 'This deal is already in ClickUp with every milestone, so nothing was created. Send an amendment to change dates.',\n    };\n  }\n} else if (!parent) {\n  out = reject('not_found', 404,\n    `Amendment for deal ${v.dealId} was rejected because no deal task in ClickUp has that deal ID. Send the under contract webhook first.`);\n} else if (!storedContract) {\n  out = reject('no_contract_date', 409,\n    `Amendment for deal ${v.dealId} was rejected because the deal task has no start date, so the contract date is unknown. Set the start date back to the contract date and resend.`);\n} else if (r.closingDate && r.closingDate <= storedContract.toISODate()) {\n  out = reject('invalid', 400,\n    `Amendment for deal ${v.dealId} was rejected because new_closing_date ${r.closingDate} is not after the contract date ${storedContract.toISODate()}. Nothing was changed.`,\n    { errors: [`new_closing_date must be after the contract date (${storedContract.toISODate()})`] });\n} else {\n  const contract = storedContract;\n  const label = r.amendmentId ? `amendment ${r.amendmentId}` : 'an amendment';\n  const targets = [];\n  ORDER.forEach((k) => {\n    const n = r.periods[k];\n    if (n !== null) targets.push({ key: k, name: existing[k] ? existing[k].name : NAMES[k], priority: 2, ...deadline(contract, n), rule: `Contract date (${short(contract)}) + ${n} days, set by ${label}` });\n  });\n  r.custom.forEach((c) => targets.push({ key: c.key, name: existing[c.key] ? existing[c.key].name : c.name, priority: c.priority, ...deadline(contract, c.days), rule: `Contract date (${short(contract)}) + ${c.days} days, set by ${label}` }));\n  if (r.closingDate) targets.push({ key: 'closing', name: existing.closing ? existing.closing.name : NAMES.closing, priority: 1, ...deadline(day(r.closingDate), 0), rule: `New closing date from ${label} (${short(day(r.closingDate))})` });\n\n  const dealLine = `${v.dealId}, ${md(parent.name)}`;\n  const assignees = (parent.assignees || []).map((a) => Number(a.id)).filter(Number.isInteger);\n  const ops = [];\n  for (const t of targets) {\n    const ex = existing[t.key];\n    if (!ex) {\n      ops.push({ op: 'create', key: t.key, name: t.name, dueMs: t.dueMs, dueLabel: t.dueLabel, body: createBody(t, dealLine, assignees) });\n    } else if (Number(ex.due_date) !== t.dueMs) {\n      ops.push({\n        op: 'update', key: t.key, name: ex.name, taskId: ex.id, url: ex.url,\n        oldDue: ex.due_date ? Number(ex.due_date) : null, oldLabel: ex.due_date ? stamp(ex.due_date) : 'no date',\n        dueMs: t.dueMs, dueLabel: t.dueLabel,\n        body: { due_date: t.dueMs, due_date_time: true, markdown_content: describe(t, dealLine) },\n      });\n    }\n  }\n  const closingTarget = targets.find((t) => t.key === 'closing');\n  if (closingTarget && Number(parent.due_date) !== closingTarget.dueMs) {\n    ops.push({\n      op: 'update', isParent: true, key: 'deal', name: parent.name, taskId: parent.id, url: parent.url,\n      oldDue: parent.due_date ? Number(parent.due_date) : null, oldLabel: parent.due_date ? stamp(parent.due_date) : 'no date',\n      dueMs: closingTarget.dueMs, dueLabel: closingTarget.dueLabel, body: { due_date: closingTarget.dueMs, due_date_time: true },\n    });\n  }\n  // Check every milestone, changed or not, against the closing date that will apply after this amendment.\n  const effective = Object.values(existing).map((t) => ({ key: fieldValue(t, KEY_FIELD), name: t.name, dueMs: Number(t.due_date), dueLabel: stamp(t.due_date) }));\n  for (const t of targets) {\n    const i = effective.findIndex((e) => e.key === t.key);\n    if (i >= 0) effective[i] = t; else effective.push(t);\n  }\n  const closingMs = closingTarget ? closingTarget.dueMs : Number((existing.closing || parent).due_date);\n  if (closingMs) warnings.push(...afterClosing(effective, closingMs));\n  const changes = ops.map((o) => ({\n    key: o.key, name: o.isParent ? 'Deal task due date' : o.name, action: o.op === 'create' ? 'added' : 'moved', from: o.oldLabel || null, to: o.dueLabel,\n  }));\n  out = {\n    route: ops.length ? 'write' : 'unchanged', status: ops.length ? 'updated' : 'unchanged', parent: parentInfo, ops, changes, warnings,\n    commentIntro: `Deadlines changed by ${label}.`, note: r.note,\n  };\n  if (!ops.length) {\n    out.httpStatus = 200;\n    out.response = {\n      ok: true, status: 'unchanged', deal_id: v.dealId, task_id: parent.id, task_url: parent.url, warnings,\n      message: 'Every deadline already matches this amendment, so nothing was changed.',\n    };\n  }\n}\n\nreturn [{ json: { event: v.event, dealId: v.dealId, ...out } }];\n"
+      }
+    },
+    {
+      "id": "5ddf1b09-fdcb-5ddf-97ad-adaf79135148",
+      "name": "Route Plan",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1720,
+        200
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "282de2a8-ce42-5031-94bb-fd3fcac07517",
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "create_parent",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "New deal"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "e0ecd2fb-5d0a-50ab-a5b7-63c44c2eaa12",
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "write",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Write changes"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "4a1d3ba7-8b82-5e6a-8c57-61de4be3d919",
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "unchanged",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Nothing to write"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "Rejected"
+        }
+      }
+    },
+    {
+      "id": "4224dcc0-6b6e-563c-9d23-bd11a96d8002",
+      "name": "Respond: Unchanged",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1960,
+        460
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json.response) }}",
+        "options": {
+          "responseCode": 200
+        }
+      }
+    },
+    {
+      "id": "2676b27f-7853-59f0-83b9-44a5b58fcc4d",
+      "name": "Respond: Plan Rejected",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1960,
+        660
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json.response) }}",
+        "options": {
+          "responseCode": "={{ $json.httpStatus }}"
+        }
+      }
+    },
+    {
+      "id": "bf7b28af-c036-50c2-8a5f-656522a21fa0",
+      "name": "Stop: Plan Rejected",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        2200,
+        660
+      ],
+      "parameters": {
+        "errorMessage": "={{ $json.errorMessage }}"
+      }
+    },
+    {
+      "id": "557f1559-aabb-5ae0-8a9d-3c14e2b8a7f4",
+      "name": "ClickUp: Create Deal Task",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2480,
+        40
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.clickup.com/api/v2/list/{{ $env.CLICKUP_LIST_ID }}/task",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ $env.CLICKUP_API_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.parentBody) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "1054b5be-ea2d-51c8-bb70-c0c419e3a6cf",
+      "name": "Build Write Queue",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2720,
+        200
+      ],
+      "parameters": {
+        "jsCode": "// One item per ClickUp write. The loop after this node sends them one at a time, so a retry\n// only ever repeats the call that failed (a node that holds several items retries all of them).\nconst plan = $('Plan Changes').first().json;\nlet parent = plan.parent;\nif ($('ClickUp: Create Deal Task').isExecuted) {\n  const t = $('ClickUp: Create Deal Task').first().json;\n  parent = { id: t.id, name: t.name, url: t.url };\n}\nreturn plan.ops.map((op) => ({\n  json: {\n    ...op,\n    parentId: parent.id,\n    parentName: parent.name,\n    parentUrl: parent.url,\n    body: op.op === 'create' ? { ...op.body, parent: parent.id } : op.body,\n  },\n  pairedItem: { item: 0 },\n}));\n"
+      }
+    },
+    {
+      "id": "85a9014d-0695-55ad-af4f-c2210e6abe2e",
+      "name": "Loop: ClickUp Writes",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        2960,
+        200
+      ],
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      }
+    },
+    {
+      "id": "caa456a6-4609-56a0-a240-9a6a35e60f4e",
+      "name": "Create or Update?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3200,
+        440
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "d03a8e93-d228-52ff-b556-a24f31dd2f9f",
+              "leftValue": "={{ $json.op }}",
+              "rightValue": "create",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "5c9bce96-68b9-5e9b-a8c5-67996df7cca8",
+      "name": "ClickUp: Create Milestone",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3440,
+        340
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.clickup.com/api/v2/list/{{ $env.CLICKUP_LIST_ID }}/task",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ $env.CLICKUP_API_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "0bf236da-cb32-515a-82d4-05cadb475ea6",
+      "name": "ClickUp: Update Due Date",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3440,
+        560
+      ],
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://api.clickup.com/api/v2/task/{{ $json.taskId }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ $env.CLICKUP_API_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "37081b63-563a-5880-8c18-20c5f42626b4",
+      "name": "Record Write",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3680,
+        440
+      ],
+      "parameters": {
+        "jsCode": "// Runs once per write, after success or failure, and records the result for the summary.\nconst op = $('Loop: ClickUp Writes').item.json;\nconst res = $json;\nconst ok = !res.error && typeof res.id === 'string' && res.id.length > 0;\nlet error = '';\nif (!ok) {\n  const e = res.error;\n  error = e && typeof e === 'object' ? String(e.message || e.description || 'unknown error') : String(e || 'ClickUp did not return a task');\n}\nreturn {\n  json: {\n    op: op.op,\n    key: op.key,\n    name: op.name,\n    isParent: Boolean(op.isParent),\n    ok,\n    taskId: ok ? res.id : op.taskId || null,\n    url: ok ? res.url || op.url || null : op.url || null,\n    oldDue: op.oldDue === undefined ? null : op.oldDue,\n    oldLabel: op.oldLabel || '',\n    dueMs: op.dueMs,\n    dueLabel: op.dueLabel,\n    parentId: op.parentId,\n    parentName: op.parentName,\n    parentUrl: op.parentUrl,\n    error,\n  },\n};\n",
+        "mode": "runOnceForEachItem"
+      }
+    },
+    {
+      "id": "39237aa4-f4f8-56ea-9d81-3ea8a2e4a8d2",
+      "name": "Summarize Writes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3960,
+        200
+      ],
+      "parameters": {
+        "jsCode": "// Collects the results of every write and, for amendments, writes the comment text.\n// Reached from the loop when it is done, or straight from \"ClickUp: Create Deal Task\" when that call failed.\nconst plan = $('Plan Changes').first().json;\nconst looped = $('Loop: ClickUp Writes').isExecuted;\nconst results = looped ? $input.all().map((i) => i.json) : [];\nlet parentError = '';\nlet parent = plan.parent;\nif (!looped) {\n  const e = $input.first().json.error;\n  parentError = e && typeof e === 'object' ? String(e.message || e.description || 'unknown error') : String(e || 'unknown error');\n} else if (results.length) {\n  parent = { id: results[0].parentId, name: results[0].parentName, url: results[0].parentUrl };\n}\nconst failed = results.filter((r) => !r.ok);\nconst applied = results.filter((r) => r.ok && !r.isParent);\n\nlet comment = '';\nif (plan.event === 'amendment' && applied.length) {\n  const lines = applied.map((r) => (r.op === 'update' ? `${r.name}: moved from ${r.oldLabel} to ${r.dueLabel}` : `${r.name}: added, due ${r.dueLabel}`));\n  comment = [plan.commentIntro, ...(plan.note ? [`Note from the sender: ${plan.note}`] : []), '', ...lines].join('\\n');\n  if (plan.warnings.length) comment += '\\n\\nPlease check:\\n' + plan.warnings.join('\\n');\n  if (failed.length) comment += '\\n\\nNot changed yet because ClickUp returned an error: ' + failed.map((f) => f.name).join(', ') + '. Resend the amendment to retry.';\n}\n\nreturn [{\n  json: {\n    event: plan.event,\n    dealId: plan.dealId,\n    status: plan.status,\n    warnings: plan.warnings,\n    milestones: plan.milestones || [],\n    changes: plan.changes || [],\n    parent,\n    parentError,\n    results,\n    failed,\n    comment,\n    needsComment: comment !== '',\n  },\n}];\n"
+      }
+    },
+    {
+      "id": "ec17b330-0a60-5223-8372-acd52f22d058",
+      "name": "Comment Needed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        4200,
+        200
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "400bb435-8cc4-5b1d-91a3-04a952373929",
+              "leftValue": "={{ $json.needsComment }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "1a08f95e-1f63-549c-ae8f-302a03304da4",
+      "name": "ClickUp: Add Comment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4440,
+        40
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.clickup.com/api/v2/task/{{ $json.parent.id }}/comment",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ $env.CLICKUP_API_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ comment_text: $json.comment, notify_all: true }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "0d676d51-fac0-5131-a975-8471d0956fae",
+      "name": "Finish",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4680,
+        200
+      ],
+      "parameters": {
+        "jsCode": "// Builds the answer for the sender and decides whether this run should raise an alert.\nconst s = $('Summarize Writes').first().json;\nlet commentError = '';\nif ($('ClickUp: Add Comment').isExecuted) {\n  const c = $json;\n  if (c.error || c.id === undefined) {\n    commentError = c.error && typeof c.error === 'object' ? String(c.error.message || 'unknown error') : 'ClickUp did not return a comment ID';\n  }\n}\nconst byKey = Object.fromEntries(s.results.filter((r) => !r.isParent).map((r) => [r.key, r]));\nconst failedList = s.failed.map((f) => ({ key: f.key, name: f.name, error: f.error }));\nlet httpStatus = 200;\nlet failed = false;\nlet errorMessage = '';\nlet status = s.status;\n\nif (s.parentError) {\n  httpStatus = 502; failed = true; status = 'failed';\n  errorMessage = `Could not create the deal task for ${s.dealId} in ClickUp: ${s.parentError}. Nothing was created. Resend the webhook to retry.`;\n} else if (s.failed.length) {\n  httpStatus = 502; failed = true; status = 'partial';\n  errorMessage = `${s.failed.length} of ${s.results.length} ClickUp changes failed for deal ${s.dealId}: `\n    + s.failed.map((f) => `${f.name} (${f.error})`).join('; ')\n    + '. Resend the same webhook to retry. Changes that already went through are not repeated.';\n} else if (commentError) {\n  failed = true;\n  errorMessage = `Deadlines for deal ${s.dealId} were updated, but the ClickUp comment could not be added (${commentError}). Please add it by hand:\\n${s.comment}`;\n}\n\nconst response = {\n  ok: !s.parentError && !s.failed.length,\n  status,\n  deal_id: s.dealId,\n  task_id: s.parent ? s.parent.id : null,\n  task_url: s.parent ? s.parent.url : null,\n};\nif (s.event === 'under_contract') {\n  response.milestones = s.milestones.map((m) => {\n    const w = byKey[m.key];\n    return { ...m, task_id: w && w.ok ? w.taskId : m.task_id, task_url: w && w.ok ? w.url : m.task_url, created: Boolean(w && w.ok) };\n  });\n} else {\n  const done = new Set(s.results.filter((r) => r.ok).map((r) => r.key));\n  response.changes = s.changes.filter((c) => done.has(c.key));\n  response.comment_added = s.needsComment && !commentError;\n}\nresponse.failed = failedList;\nresponse.warnings = s.warnings;\n\nreturn [{ json: { httpStatus, failed, errorMessage, response } }];\n"
+      }
+    },
+    {
+      "id": "9075dcca-be09-51cb-b0a4-551e5e095412",
+      "name": "Respond: Result",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        4920,
+        200
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json.response) }}",
+        "options": {
+          "responseCode": "={{ $json.httpStatus }}"
+        }
+      }
+    },
+    {
+      "id": "4d702a1e-caf5-54d1-a7f3-fe8e56aa2215",
+      "name": "Any Failures?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        5160,
+        200
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "ee5b2eb5-14ff-5979-a157-d4436b3e0653",
+              "leftValue": "={{ $json.failed }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "1d38de61-663b-53e9-b445-d4093bd6d1db",
+      "name": "Stop: Deal Sync Failed",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        5400,
+        320
+      ],
+      "parameters": {
+        "errorMessage": "={{ $json.errorMessage }}"
+      }
+    },
+    {
+      "id": "4ab04251-87ad-59ab-9003-69bc7a946f70",
+      "name": "Note: Digest",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -80,
+        980
+      ],
+      "parameters": {
+        "content": "## 5. Daily digest\nEvery morning, and on demand through Run Now, the settings are checked and ClickUp is asked for open milestones that are overdue or due within DIGEST_DAYS. They are grouped by person and by deal.",
+        "width": 1880,
+        "height": 900,
+        "color": 7
+      }
+    },
+    {
+      "id": "608e92fc-5b8c-5b2a-b64f-00fb2f1c5783",
+      "name": "Note: Send Digest",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1840,
+        980
+      ],
+      "parameters": {
+        "content": "## 6. Send one message at a time\nOne Slack message and one email per person. A digest that already went out today with the same content is skipped, so running it twice sends nothing twice.",
+        "width": 1900,
+        "height": 900,
+        "color": 2
+      }
+    },
+    {
+      "id": "3c66f377-350c-5c6a-9292-c0c0cd51acaa",
+      "name": "Schedule: Daily Digest",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        1180
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1,
+              "triggerAtHour": 7,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "323d1af3-36ee-5691-bbe0-88910e9782e7",
+      "name": "Webhook: Run Now",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        1400
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "deal-digest-run",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "9f35dca2-89c6-5aa5-9748-c21c2153ff2b"
+    },
+    {
+      "id": "d54b2ca1-7adf-5fbf-a786-9deaf34cad34",
+      "name": "Run Now Allowed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        240,
+        1400
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "39bbc0fe-ca71-590f-8c40-0cdc20fae4e1",
+              "leftValue": "={{ $env.WEBHOOK_SECRET }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "51f97740-aae2-569d-b15a-963165722601",
+              "leftValue": "={{ $json.headers['x-webhook-secret'] }}",
+              "rightValue": "={{ $env.WEBHOOK_SECRET }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "67a4649d-fe43-5a46-b8b8-7b4bc0d71aef",
+      "name": "Respond: Run Now Unauthorized",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        1640
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: false, error: \"unauthorized\" }) }}",
+        "options": {
+          "responseCode": 401
+        }
+      }
+    },
+    {
+      "id": "2e72baa2-5ebd-5f86-b4eb-991e911c7e2c",
+      "name": "Stop: Bad Run Now Secret",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        480,
+        1640
+      ],
+      "parameters": {
+        "errorMessage": "Digest Run Now rejected: the X-Webhook-Secret header is missing or wrong (or WEBHOOK_SECRET is not set)."
+      }
+    },
+    {
+      "id": "a03c80b3-55a2-5bfb-98d2-f18df9904c22",
+      "name": "Digest Window",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        1260
+      ],
+      "parameters": {
+        "jsCode": "// Checks the digest settings, then sets the window: open milestones that are overdue,\n// or due between now and the end of the day DIGEST_DAYS from now.\n// Settings problems do not throw: they go to \"Respond: Digest Not Set Up\", so Run Now gets a clear 500.\nconst TZ = $env.TIMEZONE || 'America/New_York';\nconst problems = [];\nconst required = {\n  CLICKUP_API_TOKEN: $env.CLICKUP_API_TOKEN,\n  CLICKUP_LIST_ID: $env.CLICKUP_LIST_ID,\n  CLICKUP_DEAL_ID_FIELD_ID: $env.CLICKUP_DEAL_ID_FIELD_ID,\n  CLICKUP_MILESTONE_FIELD_ID: $env.CLICKUP_MILESTONE_FIELD_ID,\n};\nfor (const [name, value] of Object.entries(required)) if (!value) problems.push(`${name} is not set`);\nconst now = DateTime.now().setZone(TZ);\nif (!now.isValid) problems.push(`TIMEZONE \"${TZ}\" is not a valid IANA time zone, for example America/Chicago`);\n\nconst whole = (name, value, fallback, max) => {\n  if (value === undefined || value === null || String(value).trim() === '') return fallback;\n  const n = Number(String(value).trim());\n  if (!Number.isInteger(n) || n < 0 || n > max) {\n    problems.push(`${name} must be a whole number from 0 to ${max}`);\n    return fallback;\n  }\n  return n;\n};\nconst digestDays = whole('DIGEST_DAYS', $env.DIGEST_DAYS, 7, 60);\nconst lookback = whole('DIGEST_OVERDUE_DAYS', $env.DIGEST_OVERDUE_DAYS, 60, 365);\n\nconst isEmail = (v) => typeof v === 'string' && /^[^\\s@<>]+@[^\\s@<>]+\\.[^\\s@<>]+$/.test(v.trim());\nlet team = [];\ntry {\n  team = JSON.parse($env.TEAM_MEMBERS || '[]');\n  if (!Array.isArray(team) || !team.length || team.some((m) => !m || !isEmail(m.email) || !Number.isInteger(Number(m.clickup_id)))) throw new Error('bad');\n} catch (e) {\n  problems.push('TEAM_MEMBERS must be a JSON list of at least one person, each with an email and a numeric clickup_id');\n  team = [];\n}\n\nconst channels = [...new Set(String($env.DIGEST_CHANNELS || 'slack,email').toLowerCase().split(',').map((s) => s.trim()).filter(Boolean))];\nconst unknown = channels.filter((c) => !['slack', 'email'].includes(c));\nif (unknown.length) problems.push(`DIGEST_CHANNELS can only list slack and email, not ${unknown.join(', ')}`);\nif (!channels.some((c) => ['slack', 'email'].includes(c))) problems.push('DIGEST_CHANNELS must be slack, email or slack,email');\nif (channels.includes('slack') && !$env.SLACK_BOT_TOKEN) problems.push('DIGEST_CHANNELS includes slack, but SLACK_BOT_TOKEN is not set');\nif (channels.includes('email') && !$env.EMAIL_API_KEY) problems.push('DIGEST_CHANNELS includes email, but EMAIL_API_KEY is not set');\nif (channels.includes('email') && !$env.EMAIL_FROM) problems.push('DIGEST_CHANNELS includes email, but EMAIL_FROM is not set');\n\nconst runNow = $('Webhook: Run Now').isExecuted;\nconst trigger = runNow ? 'run_now' : 'schedule';\nif (problems.length) {\n  const errors = problems.map((p) => 'Workflow setting: ' + p);\n  return [{\n    json: {\n      ok: false, trigger, httpStatus: 500, errors,\n      errorMessage: `The deal digest is not set up, so nothing was sent. ${problems.join('; ')}.`,\n      response: { ok: false, trigger, errors },\n    },\n  }];\n}\n\nconst body = runNow ? $('Webhook: Run Now').first().json.body : null;\nreturn [{\n  json: {\n    ok: true,\n    trigger,\n    force: Boolean(body && body.force === true),\n    timezone: TZ,\n    team,\n    channels: channels.filter((c) => ['slack', 'email'].includes(c)),\n    now: now.toMillis(),\n    today: now.toISODate(),\n    todayLabel: now.toFormat('cccc, LLL d, yyyy'),\n    digestDays,\n    // ClickUp's due_date_gt and due_date_lt filters are strict, so the edges are moved by 1 ms.\n    dueAfter: now.minus({ days: lookback }).startOf('day').toMillis() - 1,\n    dueBefore: now.plus({ days: digestDays }).endOf('day').toMillis() + 1,\n  },\n}];\n"
+      }
+    },
+    {
+      "id": "d6b2c053-df9a-5dd3-9d27-fb6aa89da35e",
+      "name": "Digest Set Up?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        720,
+        1260
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "966c3787-3eb9-5ebc-9a4d-038ffcaab1fe",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "02547bfd-77f7-5dd6-81fc-ea3343da7ec9",
+      "name": "Respond: Digest Not Set Up",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        720,
+        1500
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json.response) }}",
+        "options": {
+          "responseCode": 500
+        }
+      }
+    },
+    {
+      "id": "03d8c3d0-4384-5c58-bbb0-abf97e757162",
+      "name": "Stop: Digest Not Set Up",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        960,
+        1500
+      ],
+      "parameters": {
+        "errorMessage": "={{ $json.errorMessage }}"
+      }
+    },
+    {
+      "id": "0cc4c89e-2c24-5c8d-b5dc-296c3761951b",
+      "name": "ClickUp: Get Due Milestones",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        1260
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.clickup.com/api/v2/list/{{ $env.CLICKUP_LIST_ID }}/task",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ $env.CLICKUP_API_TOKEN }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "subtasks",
+              "value": "true"
+            },
+            {
+              "name": "include_closed",
+              "value": "false"
+            },
+            {
+              "name": "due_date_gt",
+              "value": "={{ $json.dueAfter }}"
+            },
+            {
+              "name": "due_date_lt",
+              "value": "={{ $json.dueBefore }}"
+            },
+            {
+              "name": "order_by",
+              "value": "due_date"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000,
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "page",
+                    "value": "={{ $pageCount }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ $response.body.last_page !== false }}",
+              "limitPagesFetched": true,
+              "maxRequests": 50
+            }
+          }
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "ae1e6664-68e4-5c3b-a1a5-84986f2f0cea",
+      "name": "ClickUp: Get Open Deals",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        1260
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.clickup.com/api/v2/list/{{ $env.CLICKUP_LIST_ID }}/task",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ $env.CLICKUP_API_TOKEN }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "subtasks",
+              "value": "false"
+            },
+            {
+              "name": "include_closed",
+              "value": "false"
+            },
+            {
+              "name": "order_by",
+              "value": "created"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000,
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "page",
+                    "value": "={{ $pageCount }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ $response.body.last_page !== false }}",
+              "limitPagesFetched": true,
+              "maxRequests": 50
+            }
+          }
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput",
+      "executeOnce": true
+    },
+    {
+      "id": "8db7ce6e-f915-572d-b1ff-d270e816a670",
+      "name": "Respond: Digest ClickUp Down",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1200,
+        1720
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: false, error: 'ClickUp did not answer, so no digest was sent. Please retry later.' }) }}",
+        "options": {
+          "responseCode": 502
+        }
+      }
+    },
+    {
+      "id": "1cab595a-63d7-5ee5-bda5-3d1a2a36485f",
+      "name": "Stop: Digest Query Failed",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        1440,
+        1720
+      ],
+      "parameters": {
+        "errorMessage": "={{ 'Deal digest stopped. ClickUp did not answer after 3 tries (' + ($json.error?.message || 'unknown error') + '). Nothing was sent.' }}"
+      }
+    },
+    {
+      "id": "7fc177c1-57c2-522f-a9fa-12c3eb449594",
+      "name": "Build Digests",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        1260
+      ],
+      "parameters": {
+        "jsCode": "// Groups the open milestones by person and then by deal, and builds one Slack message and one email per person.\n// A digest that already went out today with the same content is skipped, so a second run never repeats it.\nconst w = $('Digest Window').first().json;\nconst TZ = w.timezone;\nconst DEAL_FIELD = $env.CLICKUP_DEAL_ID_FIELD_ID;\nconst KEY_FIELD = $env.CLICKUP_MILESTONE_FIELD_ID;\n// \"Digest Window\" already checked the team list and the channels, so they are read from it.\nconst team = w.team;\nconst slackOn = w.channels.includes('slack');\nconst emailOn = w.channels.includes('email');\nconst emailFrom = $env.EMAIL_FROM || '';\n\nconst store = $getWorkflowStaticData('global');\nif (!store.digests || typeof store.digests !== 'object') store.digests = {};\nconst keepFrom = DateTime.fromMillis(w.now, { zone: TZ }).minus({ days: 7 }).toISODate();\nfor (const k of Object.keys(store.digests)) if (k.slice(0, 10) < keepFrom) delete store.digests[k];\n\nconst fieldValue = (t, id) => {\n  const f = (t.custom_fields || []).find((x) => x.id === id);\n  return f && f.value !== undefined && f.value !== null ? String(f.value) : '';\n};\nconst slackEscape = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst htmlEscape = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;').replace(/'/g, '&#39;');\nconst safeUrl = (u) => (typeof u === 'string' && /^https:\\/\\/[^\\s\"'<>|]+$/.test(u) ? u : '');\nconst hash = (s) => {\n  let h = 0x811c9dc5;\n  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); }\n  return (h >>> 0).toString(16).padStart(8, '0');\n};\nconst today = DateTime.fromMillis(w.now, { zone: TZ }).startOf('day');\nconst when = (ms) => {\n  const d = DateTime.fromMillis(ms, { zone: TZ });\n  const diff = Math.round(d.startOf('day').diff(today, 'days').days);\n  let rel;\n  if (ms < w.now) rel = diff === 0 ? 'overdue, was due today' : `${-diff} day${diff === -1 ? '' : 's'} overdue`;\n  else rel = diff === 0 ? 'due today' : diff === 1 ? 'due tomorrow' : `due in ${diff} days`;\n  return { label: d.toFormat('ccc LLL d, h:mm a'), rel };\n};\n\n// Deal names come from the parent tasks (second query); milestones from the first, paged query.\nconst deals = new Map();\nfor (const page of $input.all()) for (const t of page.json.tasks || []) if (!t.parent) deals.set(t.id, t);\nconst seen = new Set();\nconst items = [];\nfor (const page of $('ClickUp: Get Due Milestones').all()) {\n  for (const t of page.json.tasks || []) {\n    if (seen.has(t.id)) continue;\n    seen.add(t.id);\n    const key = fieldValue(t, KEY_FIELD);\n    const dealId = fieldValue(t, DEAL_FIELD);\n    if (!key || !dealId || !t.due_date || !t.parent) continue;\n    if (t.status && ['closed', 'done'].includes(t.status.type)) continue;\n    const due = Number(t.due_date);\n    if (!(due > w.dueAfter && due < w.dueBefore)) continue;\n    const parent = deals.get(t.parent);\n    items.push({\n      id: t.id, name: t.name, url: safeUrl(t.url), due, overdue: due < w.now, dealId,\n      dealTitle: parent ? parent.name : `Deal ${dealId}`, dealUrl: parent ? safeUrl(parent.url) : '',\n      assignees: (t.assignees || []).map((a) => String(a.id)),\n    });\n  }\n}\n\nconst known = new Set(team.map((m) => String(m.clickup_id)));\nconst notInTeam = [...new Set(items.flatMap((i) => i.assignees).filter((a) => !known.has(a)))];\nconst messages = [];\nconst skipped = [];\nconst people = [];\nfor (const member of team) {\n  const id = String(member.clickup_id);\n  const mine = items.filter((i) => i.assignees.includes(id)).sort((a, b) => a.due - b.due || a.name.localeCompare(b.name));\n  if (!mine.length) continue;\n  const groups = [];\n  for (const i of mine) {\n    let g = groups.find((x) => x.dealId === i.dealId);\n    if (!g) { g = { dealId: i.dealId, title: i.dealTitle, url: i.dealUrl, items: [] }; groups.push(g); }\n    g.items.push(i);\n  }\n  const overdue = mine.filter((i) => i.overdue).length;\n  const soon = mine.length - overdue;\n  const name = member.name || member.email;\n  const summary = `${overdue} overdue, ${soon} due in the next ${w.digestDays} days`;\n  people.push({ member: name, overdue, due_soon: soon });\n\n  const slack = [`*Deal deadlines for ${slackEscape(name)}*, ${w.todayLabel}`, `${summary}.`];\n  const html = [`<p><strong>Deal deadlines for ${htmlEscape(name)}</strong>, ${htmlEscape(w.todayLabel)}</p>`, `<p>${htmlEscape(summary)}.</p>`];\n  const text = [`Deal deadlines for ${name}, ${w.todayLabel}`, `${summary}.`];\n  for (const g of groups) {\n    const title = g.url ? `<${g.url}|${slackEscape(g.title)}>` : slackEscape(g.title);\n    slack.push('', `*${title}* (${slackEscape(g.dealId)})`);\n    html.push(`<h3 style=\"margin:16px 0 4px\">${g.url ? `<a href=\"${htmlEscape(g.url)}\">${htmlEscape(g.title)}</a>` : htmlEscape(g.title)} (${htmlEscape(g.dealId)})</h3>`, '<ul>');\n    text.push('', `${g.title} (${g.dealId})`);\n    for (const i of g.items) {\n      const t = when(i.due);\n      const flag = i.overdue ? 'OVERDUE ' : '';\n      slack.push(`• ${i.overdue ? '*OVERDUE* ' : ''}${i.url ? `<${i.url}|${slackEscape(i.name)}>` : slackEscape(i.name)}: ${t.label}, ${t.rel}`);\n      html.push(`<li>${i.overdue ? '<strong style=\"color:#b42318\">OVERDUE</strong> ' : ''}${i.url ? `<a href=\"${htmlEscape(i.url)}\">${htmlEscape(i.name)}</a>` : htmlEscape(i.name)}: ${htmlEscape(t.label)}, ${htmlEscape(t.rel)}</li>`);\n      text.push(`* ${flag}${i.name}: ${t.label}, ${t.rel}${i.url ? ' ' + i.url : ''}`);\n    }\n    html.push('</ul>');\n  }\n  html.push('<p style=\"color:#667085;font-size:12px\">Sent by the deal deadline workflow. Update or complete the tasks in ClickUp.</p>');\n  const content = { slack: slack.join('\\n'), email: html.join('\\n') };\n  const subject = `Deal deadlines: ${overdue} overdue, ${soon} due soon (${today.toFormat('ccc LLL d')})`;\n\n  const want = [];\n  if (slackOn && member.slack_id) want.push('slack');\n  if (emailOn && member.email) want.push('email');\n  if (!want.length) skipped.push({ member: name, channel: null, reason: 'no delivery channel is set up for this person' });\n  for (const channel of want) {\n    const h = hash(content[channel]);\n    const dedupeKey = `${w.today}|${id}|${channel}`;\n    if (!w.force && store.digests[dedupeKey] === h) {\n      skipped.push({ member: name, channel, reason: 'already sent today with the same content' });\n      continue;\n    }\n    messages.push({\n      channel, member: name, memberId: id, dedupeKey, hash: h, overdue, dueSoon: soon,\n      slackBody: channel === 'slack' ? { channel: String(member.slack_id), text: content.slack, unfurl_links: false, unfurl_media: false } : null,\n      emailBody: channel === 'email' ? { from: emailFrom, to: [String(member.email)], subject, html: content.email, text: text.join('\\n') } : null,\n      // Resend keeps an idempotency key for 24 hours, so a retried request can never send the same email twice.\n      idempotencyKey: `deal-digest-${w.today}-${id}-${h}${w.force ? '-f' + w.now : ''}`,\n    });\n  }\n}\n\nconst stats = { trigger: w.trigger, date: w.today, milestones: items.length, people, skipped, not_in_team: notInTeam };\nif (!messages.length) {\n  return [{ json: { nothing: true, stats, response: { ok: true, ...stats, sent: [], failed: [] } }, pairedItem: { item: 0 } }];\n}\nreturn messages.map((m) => ({ json: { ...m, stats }, pairedItem: { item: 0 } }));\n"
+      }
+    },
+    {
+      "id": "0de4fcb2-04ce-5825-b5e5-d7c4a7438468",
+      "name": "Anything To Send?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        1260
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "2335a7f5-0f22-5c37-a5d3-606f87e64d62",
+              "leftValue": "={{ $json.nothing !== true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "31f20973-5630-5590-b19a-84618cbe6aab",
+      "name": "Respond: Nothing To Send",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1680,
+        1500
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json.response) }}",
+        "options": {
+          "responseCode": 200
+        }
+      }
+    },
+    {
+      "id": "40eb55ab-0b05-53e5-97ec-dee86b6bba70",
+      "name": "Loop: Send Digests",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1920,
+        1260
+      ],
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      }
+    },
+    {
+      "id": "ebb40aa2-a958-5e2a-bcdd-a31415297f71",
+      "name": "Slack or Email?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2160,
+        1500
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "018bc17b-640b-5f0c-a223-086ba589c13f",
+              "leftValue": "={{ $json.channel }}",
+              "rightValue": "slack",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "c050fad5-a978-5686-92df-30d34567d8e6",
+      "name": "Slack: Send Digest",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2400,
+        1420
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://slack.com/api/chat.postMessage",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $env.SLACK_BOT_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.slackBody) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "6c739739-af16-53d4-b633-097c097ea14f",
+      "name": "Email: Send Digest",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2400,
+        1600
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.resend.com/emails",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $env.EMAIL_API_KEY }}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{ $json.idempotencyKey }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.emailBody) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "408fdd5b-7515-5f26-87c8-2bfa18420f32",
+      "name": "Record Send",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        1500
+      ],
+      "parameters": {
+        "jsCode": "// Runs once per message. Slack answers 200 even when it refuses a message ({\"ok\": false}), so \"ok\" is checked here.\nconst m = $('Loop: Send Digests').item.json;\nconst r = $json;\nlet ok = false;\nlet error = '';\nif (m.channel === 'slack') {\n  ok = r.ok === true;\n  if (!ok) error = typeof r.error === 'string' ? `Slack said ${r.error}` : String((r.error && r.error.message) || 'no answer from Slack');\n} else {\n  ok = !r.error && typeof r.id === 'string' && r.id.length > 0;\n  if (!ok) error = String((r.error && (r.error.message || r.error)) || 'the email API returned no message ID');\n}\nif (ok) {\n  const store = $getWorkflowStaticData('global');\n  if (!store.digests || typeof store.digests !== 'object') store.digests = {};\n  store.digests[m.dedupeKey] = m.hash;\n}\nreturn { json: { channel: m.channel, member: m.member, ok, error } };\n",
+        "mode": "runOnceForEachItem"
+      }
+    },
+    {
+      "id": "281e2164-18da-5052-9560-55008444adef",
+      "name": "Digest Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2880,
+        1260
+      ],
+      "parameters": {
+        "jsCode": "// Sums up the run for the Run Now caller and decides whether to raise an alert.\nconst stats = $('Build Digests').first().json.stats;\nconst results = $input.all().map((i) => i.json);\nconst failed = results.filter((r) => !r.ok);\nconst errorMessage = failed.length\n  ? `Deal digest: ${failed.length} of ${results.length} messages failed: `\n    + failed.map((f) => `${f.member} by ${f.channel} (${f.error})`).join('; ')\n    + '. The others were sent. Run it again to retry; people who already got the same digest today are skipped.'\n  : '';\nreturn [{\n  json: {\n    failed: failed.length > 0,\n    httpStatus: failed.length ? 502 : 200,\n    errorMessage,\n    response: {\n      ok: failed.length === 0,\n      ...stats,\n      sent: results.filter((r) => r.ok).map((r) => ({ member: r.member, channel: r.channel })),\n      failed: failed.map((r) => ({ member: r.member, channel: r.channel, error: r.error })),\n    },\n  },\n}];\n"
+      }
+    },
+    {
+      "id": "160090b5-69d3-5a08-907c-f9eea7ccfd56",
+      "name": "Respond: Digest Result",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        3120,
+        1260
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json.response) }}",
+        "options": {
+          "responseCode": "={{ $json.httpStatus }}"
+        }
+      }
+    },
+    {
+      "id": "8dde9648-0e2b-514d-80e0-542d1f0100c5",
+      "name": "Digest Failed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3360,
+        1260
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "ee5b2eb5-14ff-5979-a157-d4436b3e0653",
+              "leftValue": "={{ $json.failed }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "96cbc72e-177c-5a44-ae7f-feaee9be722f",
+      "name": "Stop: Digest Failed",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        3600,
+        1380
+      ],
+      "parameters": {
+        "errorMessage": "={{ $json.errorMessage }}"
+      }
+    }
+  ],
+  "connections": {
+    "Webhook: Under Contract": {
+      "main": [
+        [
+          {
+            "node": "Secret Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook: Amendment": {
+      "main": [
+        [
+          {
+            "node": "Secret Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Secret Valid?": {
+      "main": [
+        [
+          {
+            "node": "Validate Deal",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond: Unauthorized",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond: Unauthorized": {
+      "main": [
+        [
+          {
+            "node": "Stop: Bad Secret",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Deal": {
+      "main": [
+        [
+          {
+            "node": "Payload Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Payload Valid?": {
+      "main": [
+        [
+          {
+            "node": "ClickUp: Find Deal",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond: Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond: Rejected": {
+      "main": [
+        [
+          {
+            "node": "Stop: Invalid Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ClickUp: Find Deal": {
+      "main": [
+        [
+          {
+            "node": "Plan Changes",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond: ClickUp Down",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond: ClickUp Down": {
+      "main": [
+        [
+          {
+            "node": "Stop: ClickUp Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Plan Changes": {
+      "main": [
+        [
+          {
+            "node": "Route Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Plan": {
+      "main": [
+        [
+          {
+            "node": "ClickUp: Create Deal Task",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Write Queue",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond: Unchanged",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond: Plan Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond: Plan Rejected": {
+      "main": [
+        [
+          {
+            "node": "Stop: Plan Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ClickUp: Create Deal Task": {
+      "main": [
+        [
+          {
+            "node": "Build Write Queue",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Summarize Writes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Write Queue": {
+      "main": [
+        [
+          {
+            "node": "Loop: ClickUp Writes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop: ClickUp Writes": {
+      "main": [
+        [
+          {
+            "node": "Summarize Writes",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create or Update?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create or Update?": {
+      "main": [
+        [
+          {
+            "node": "ClickUp: Create Milestone",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "ClickUp: Update Due Date",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ClickUp: Create Milestone": {
+      "main": [
+        [
+          {
+            "node": "Record Write",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Record Write",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ClickUp: Update Due Date": {
+      "main": [
+        [
+          {
+            "node": "Record Write",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Record Write",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record Write": {
+      "main": [
+        [
+          {
+            "node": "Loop: ClickUp Writes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarize Writes": {
+      "main": [
+        [
+          {
+            "node": "Comment Needed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Comment Needed?": {
+      "main": [
+        [
+          {
+            "node": "ClickUp: Add Comment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Finish",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ClickUp: Add Comment": {
+      "main": [
+        [
+          {
+            "node": "Finish",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Finish",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finish": {
+      "main": [
+        [
+          {
+            "node": "Respond: Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond: Result": {
+      "main": [
+        [
+          {
+            "node": "Any Failures?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any Failures?": {
+      "main": [
+        [
+          {
+            "node": "Stop: Deal Sync Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule: Daily Digest": {
+      "main": [
+        [
+          {
+            "node": "Digest Window",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook: Run Now": {
+      "main": [
+        [
+          {
+            "node": "Run Now Allowed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Now Allowed?": {
+      "main": [
+        [
+          {
+            "node": "Digest Window",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond: Run Now Unauthorized",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond: Run Now Unauthorized": {
+      "main": [
+        [
+          {
+            "node": "Stop: Bad Run Now Secret",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Digest Window": {
+      "main": [
+        [
+          {
+            "node": "Digest Set Up?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Digest Set Up?": {
+      "main": [
+        [
+          {
+            "node": "ClickUp: Get Due Milestones",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond: Digest Not Set Up",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond: Digest Not Set Up": {
+      "main": [
+        [
+          {
+            "node": "Stop: Digest Not Set Up",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ClickUp: Get Due Milestones": {
+      "main": [
+        [
+          {
+            "node": "ClickUp: Get Open Deals",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond: Digest ClickUp Down",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ClickUp: Get Open Deals": {
+      "main": [
+        [
+          {
+            "node": "Build Digests",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond: Digest ClickUp Down",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond: Digest ClickUp Down": {
+      "main": [
+        [
+          {
+            "node": "Stop: Digest Query Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Digests": {
+      "main": [
+        [
+          {
+            "node": "Anything To Send?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anything To Send?": {
+      "main": [
+        [
+          {
+            "node": "Loop: Send Digests",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond: Nothing To Send",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop: Send Digests": {
+      "main": [
+        [
+          {
+            "node": "Digest Summary",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Slack or Email?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack or Email?": {
+      "main": [
+        [
+          {
+            "node": "Slack: Send Digest",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Email: Send Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack: Send Digest": {
+      "main": [
+        [
+          {
+            "node": "Record Send",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Record Send",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email: Send Digest": {
+      "main": [
+        [
+          {
+            "node": "Record Send",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Record Send",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record Send": {
+      "main": [
+        [
+          {
+            "node": "Loop: Send Digests",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Digest Summary": {
+      "main": [
+        [
+          {
+            "node": "Respond: Digest Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond: Digest Result": {
+      "main": [
+        [
+          {
+            "node": "Digest Failed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Digest Failed?": {
+      "main": [
+        [
+          {
+            "node": "Stop: Digest Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
